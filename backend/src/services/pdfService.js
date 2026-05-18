@@ -6,9 +6,12 @@ const PDFDocument = require('pdfkit');
 const PDF_DIR = path.join(os.tmpdir(), 'stellarpath-cv');
 const FONT_REGULAR = 'Helvetica';
 const FONT_BOLD = 'Helvetica-Bold';
-const TEXT_COLOR = '#222222';
-const MUTED_COLOR = '#666666';
-const RULE_COLOR = '#333333';
+
+const COLOR_PRIMARY = '#1e293b';
+const COLOR_ACCENT = '#1e40af';
+const COLOR_MUTED = '#64748b';
+const COLOR_RULE = '#94a3b8';
+const COLOR_RULE_LIGHT = '#e2e8f0';
 
 function normalizeText(value) {
   if (Array.isArray(value)) {
@@ -33,43 +36,51 @@ function normalizeAchievements(value) {
     .filter(Boolean);
 }
 
-function addSectionTitle(doc, title) {
+function contentBounds(doc) {
   const startX = doc.page.margins.left;
   const endX = doc.page.width - doc.page.margins.right;
-  const y = doc.y + 15;
-
-  doc
-    .moveDown(0.9)
-    .font(FONT_BOLD)
-    .fontSize(11)
-    .fillColor(TEXT_COLOR)
-    .text(title.toUpperCase(), {
-      align: 'center',
-    });
-
-  doc
-    .moveTo(startX, y)
-    .lineTo(endX, y)
-    .lineWidth(0.5)
-    .strokeColor(RULE_COLOR)
-    .stroke()
-    .strokeColor(TEXT_COLOR)
-    .moveDown(0.5);
+  return { startX, endX, width: endX - startX };
 }
 
-function addDivider(doc) {
-  const startX = doc.page.margins.left;
-  const endX = doc.page.width - doc.page.margins.right;
-  const y = doc.y + 6;
+function drawHorizontalRule(doc, y, color = COLOR_RULE_LIGHT, lineWidth = 0.75) {
+  const { startX, endX } = contentBounds(doc);
 
   doc
+    .save()
     .moveTo(startX, y)
     .lineTo(endX, y)
-    .lineWidth(0.5)
-    .strokeColor(RULE_COLOR)
+    .lineWidth(lineWidth)
+    .strokeColor(color)
     .stroke()
-    .strokeColor(TEXT_COLOR)
-    .moveDown(0.65);
+    .restore()
+    .strokeColor(COLOR_PRIMARY)
+    .fillColor(COLOR_PRIMARY);
+}
+
+function addSectionTitle(doc, title) {
+  const { startX, width } = contentBounds(doc);
+
+  doc.moveDown(1.1);
+
+  doc
+    .font(FONT_BOLD)
+    .fontSize(10)
+    .fillColor(COLOR_ACCENT)
+    .text(title.toUpperCase(), startX, doc.y, {
+      width,
+      align: 'left',
+      characterSpacing: 0.6,
+    });
+
+  const lineY = doc.y + 5;
+  drawHorizontalRule(doc, lineY, COLOR_ACCENT, 1.2);
+  doc.y = lineY + 12;
+}
+
+function addHeaderDivider(doc) {
+  const lineY = doc.y + 10;
+  drawHorizontalRule(doc, lineY, COLOR_RULE_LIGHT, 0.75);
+  doc.y = lineY + 14;
 }
 
 function addBullet(doc, text) {
@@ -77,11 +88,17 @@ function addBullet(doc, text) {
     return;
   }
 
+  const { startX, width } = contentBounds(doc);
+  const bulletX = startX + 8;
+  const textWidth = width - 8;
+
   doc
     .font(FONT_REGULAR)
-    .fontSize(9.4)
-    .fillColor(TEXT_COLOR)
-    .text(`- ${text}`, {
+    .fontSize(9.3)
+    .fillColor(COLOR_PRIMARY)
+    .text('•', startX, doc.y, { continued: false, width: 8 })
+    .text(text, bulletX, doc.y - doc.currentLineHeight(), {
+      width: textWidth,
       lineGap: 2,
     });
 }
@@ -95,18 +112,22 @@ function buildContactLine(candidate) {
     candidate.location,
   ]
     .filter(Boolean)
-    .join(' | ');
+    .join('  |  ');
 }
 
 function addSummary(doc, summary) {
   addSectionTitle(doc, 'Professional Summary');
 
+  const { startX, width } = contentBounds(doc);
+
   doc
     .font(FONT_REGULAR)
-    .fontSize(9.7)
-    .fillColor(TEXT_COLOR)
-    .text(normalizeText(summary), {
+    .fontSize(9.5)
+    .fillColor(COLOR_PRIMARY)
+    .text(normalizeText(summary), startX, doc.y, {
+      width,
       lineGap: 3,
+      align: 'left',
     });
 }
 
@@ -117,8 +138,9 @@ function addSkills(doc, skills) {
 
   addSectionTitle(doc, 'Skills');
 
+  const { startX, width } = contentBounds(doc);
   const skillsByCategory = skills.reduce((groups, skill) => {
-    const category = skill.category || 'Autres';
+    const category = skill.category || 'Other';
 
     if (!groups[category]) {
       groups[category] = [];
@@ -131,14 +153,16 @@ function addSkills(doc, skills) {
   Object.entries(skillsByCategory).forEach(([category, names]) => {
     doc
       .font(FONT_BOLD)
-      .fontSize(9.4)
-      .fillColor(TEXT_COLOR)
-      .text(`${category}: `, {
+      .fontSize(9.2)
+      .fillColor(COLOR_ACCENT)
+      .text(`${category}: `, startX, doc.y, {
         continued: true,
+        width,
       })
       .font(FONT_REGULAR)
+      .fillColor(COLOR_PRIMARY)
       .text(names.join(', '), {
-        lineGap: 2,
+        lineGap: 3,
       });
   });
 }
@@ -150,42 +174,50 @@ function addProjects(doc, projects) {
 
   addSectionTitle(doc, 'Projects');
 
+  const { startX, width } = contentBounds(doc);
+
   projects.forEach((project, index) => {
     if (index > 0) {
-      doc.moveDown(0.55);
+      doc.moveDown(0.65);
     }
 
     doc
       .font(FONT_BOLD)
-      .fontSize(10.3)
-      .fillColor(MUTED_COLOR)
-      .text(normalizeText(project.name));
+      .fontSize(10.2)
+      .fillColor(COLOR_PRIMARY)
+      .text(normalizeText(project.name), startX, doc.y, { width });
 
     if (project.tech_stack) {
+      doc.moveDown(0.15);
       doc
         .font(FONT_BOLD)
-        .fontSize(9.4)
-        .fillColor(TEXT_COLOR)
-        .text('Tech Stack: ', {
+        .fontSize(9.1)
+        .fillColor(COLOR_MUTED)
+        .text('Tech Stack: ', startX, doc.y, {
           continued: true,
+          width,
         })
         .font(FONT_REGULAR)
+        .fillColor(COLOR_PRIMARY)
         .text(normalizeText(project.tech_stack), {
-          lineGap: 1.5,
+          lineGap: 2,
         });
     }
 
     if (project.description) {
+      doc.moveDown(0.1);
       doc
         .font(FONT_REGULAR)
-        .fontSize(9.4)
-        .fillColor(TEXT_COLOR)
-        .text(normalizeText(project.description), {
+        .fontSize(9.2)
+        .fillColor(COLOR_PRIMARY)
+        .text(normalizeText(project.description), startX, doc.y, {
+          width,
           lineGap: 2,
         });
     }
 
     normalizeAchievements(project.key_achievements).forEach((achievement) => {
+      doc.moveDown(0.08);
       addBullet(doc, achievement);
     });
   });
@@ -198,19 +230,26 @@ function addEducation(doc, education) {
 
   addSectionTitle(doc, 'Education');
 
-  education.forEach((item) => {
+  const { startX, width } = contentBounds(doc);
+
+  education.forEach((item, index) => {
+    if (index > 0) {
+      doc.moveDown(0.35);
+    }
+
     doc
       .font(FONT_BOLD)
-      .fontSize(9.8)
-      .fillColor(TEXT_COLOR)
-      .text(normalizeText(item.school));
+      .fontSize(9.6)
+      .fillColor(COLOR_PRIMARY)
+      .text(normalizeText(item.school), startX, doc.y, { width });
 
     if (item.diploma) {
       doc
         .font(FONT_REGULAR)
-        .fontSize(9.4)
-        .fillColor(TEXT_COLOR)
-        .text(normalizeText(item.diploma), {
+        .fontSize(9.2)
+        .fillColor(COLOR_MUTED)
+        .text(normalizeText(item.diploma), startX, doc.y, {
+          width,
           lineGap: 2,
         });
     }
@@ -236,7 +275,7 @@ async function generateResumePdf({ candidate, summary, skills, projects, educati
 
   const doc = new PDFDocument({
     size: 'LETTER',
-    margin: 48,
+    margin: 52,
     info: {
       Title: `${candidate.name} Resume`,
       Author: candidate.name,
@@ -247,38 +286,45 @@ async function generateResumePdf({ candidate, summary, skills, projects, educati
   const output = fs.createWriteStream(filePath);
   doc.pipe(output);
 
+  const { startX, width } = contentBounds(doc);
+
   doc
     .font(FONT_BOLD)
-    .fontSize(16)
-    .fillColor(TEXT_COLOR)
-    .text(candidate.name, {
+    .fontSize(20)
+    .fillColor(COLOR_PRIMARY)
+    .text(candidate.name.toUpperCase(), startX, doc.y, {
+      width,
       align: 'center',
+      characterSpacing: 0.8,
     });
 
   if (candidate.title) {
+    doc.moveDown(0.35);
     doc
-      .moveDown(0.2)
-      .font(FONT_BOLD)
-      .fontSize(10)
-      .fillColor(MUTED_COLOR)
-      .text(candidate.title, {
+      .font(FONT_REGULAR)
+      .fontSize(10.5)
+      .fillColor(COLOR_ACCENT)
+      .text(candidate.title, startX, doc.y, {
+        width,
         align: 'center',
       });
   }
 
   const contactLine = buildContactLine(candidate);
   if (contactLine) {
+    doc.moveDown(0.4);
     doc
-      .moveDown(0.3)
       .font(FONT_REGULAR)
-      .fontSize(8.7)
-      .fillColor(TEXT_COLOR)
-      .text(contactLine, {
+      .fontSize(8.5)
+      .fillColor(COLOR_MUTED)
+      .text(contactLine, startX, doc.y, {
+        width,
         align: 'center',
+        lineGap: 1,
       });
   }
 
-  addDivider(doc);
+  addHeaderDivider(doc);
   addSummary(doc, summary);
   addSkills(doc, skills);
   addProjects(doc, projects);
