@@ -6,6 +6,7 @@ const projectsRoutes = require('./routes/projectsRoutes');
 const skillsRoutes = require('./routes/skillsRoutes');
 const cvRoutes = require('./routes/cvRoutes');
 const interviewRoutes = require('./routes/interviewRoutes');
+const aiRoutes = require('./routes/aiRoutes');
 const errorMiddleware = require('./middlewares/errorMiddleware');
 
 const app = express();
@@ -29,6 +30,7 @@ app.use('/api/projects', projectsRoutes);
 app.use('/api/skills', skillsRoutes);
 app.use('/api/cv', cvRoutes);
 app.use('/api/interview', interviewRoutes);
+app.use('/api/ai', aiRoutes);
 
 // Error middleware should be registered after routes.
 app.use(errorMiddleware);
