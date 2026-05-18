@@ -8,7 +8,8 @@
     "dev": "nodemon src/server.js",
     "seed:memory": "node src/scripts/seedMemory.js",
     "test:search": "node src/scripts/testSearch.js",
-    "test:tailor": "node src/scripts/testTailor.js"
+    "test:tailor": "node src/scripts/testTailor.js",
+    "setup:interview": "node src/scripts/setupInterview.js"
   },
   "keywords": [],
   "author": "",

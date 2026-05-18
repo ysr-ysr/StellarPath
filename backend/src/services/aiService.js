@@ -1,8 +1,53 @@
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434/api/generate';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'phi3';
 const OLLAMA_TIMEOUT_MS = Number(process.env.OLLAMA_TIMEOUT_MS) || 300000;
+const OLLAMA_NUM_CTX = Number(process.env.OLLAMA_NUM_CTX) || 2048;
 
-async function generateResponse(prompt) {
+function buildMemoryHelpMessage(ollamaError) {
+  const lower = String(ollamaError).toLowerCase();
+
+  if (
+    !lower.includes('memory') &&
+    !lower.includes('kv cache') &&
+    !lower.includes('allocate') &&
+    !lower.includes('buffer')
+  ) {
+    return '';
+  }
+
+  return [
+    'Your PC does not have enough free RAM for this local model.',
+    'Fix: add OLLAMA_MODEL=gpt-oss:120b-cloud to backend/.env (uses Ollama cloud),',
+    'or run: ollama pull qwen2:0.5b and set OLLAMA_MODEL=qwen2:0.5b',
+    'then restart npm run dev.',
+  ].join(' ');
+}
+
+// Some Ollama models (e.g. gpt-oss cloud) write to "thinking" before "response".
+function extractOllamaText(data) {
+  const responseText = String(data.response || '').trim();
+
+  if (responseText) {
+    return responseText;
+  }
+
+  const thinkingText = String(data.thinking || '').trim();
+
+  if (!thinkingText) {
+    return '';
+  }
+
+  // If the model hid JSON inside thinking, recover it.
+  const jsonMatch = thinkingText.match(/\{[\s\S]*"acceptable"[\s\S]*\}/i);
+
+  if (jsonMatch) {
+    return jsonMatch[0];
+  }
+
+  return thinkingText;
+}
+
+async function generateResponse(prompt, options = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
 
@@ -20,8 +65,9 @@ async function generateResponse(prompt) {
         prompt,
         stream: false,
         options: {
-          num_predict: 240,
-          temperature: 0.4,
+          num_predict: options.num_predict || 240,
+          temperature: options.temperature ?? 0.4,
+          num_ctx: options.num_ctx || OLLAMA_NUM_CTX,
         },
       }),
     });
@@ -35,12 +81,27 @@ async function generateResponse(prompt) {
     clearTimeout(timeout);
   }
 
+  const data = await response.json();
+
   if (!response.ok) {
-    throw new Error(`Ollama request failed with status ${response.status}`);
+    const ollamaError = data.error || data.message || `HTTP ${response.status}`;
+    const memoryHelp = buildMemoryHelpMessage(ollamaError);
+    throw new Error(
+      memoryHelp
+        ? `Ollama request failed: ${ollamaError} ${memoryHelp}`
+        : `Ollama request failed: ${ollamaError}`
+    );
   }
 
-  const data = await response.json();
-  return data.response;
+  const text = extractOllamaText(data);
+
+  if (!text.trim()) {
+    throw new Error(
+      'Ollama returned an empty response. Increase OLLAMA_NUM_PREDICT or use a faster model.'
+    );
+  }
+
+  return text;
 }
 
 module.exports = {

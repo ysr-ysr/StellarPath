@@ -4,7 +4,8 @@
     "start": "npm --prefix backend start",
     "seed:memory": "npm --prefix backend run seed:memory",
     "test:search": "npm --prefix backend run test:search",
-    "test:tailor": "npm --prefix backend run test:tailor"
+    "test:tailor": "npm --prefix backend run test:tailor",
+    "setup:interview": "npm --prefix backend run setup:interview"
   },
   "dependencies": {
     "chromadb": "^3.4.3",

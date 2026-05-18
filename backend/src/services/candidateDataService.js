@@ -94,6 +94,7 @@ async function getCandidateResumeData(candidateId) {
 }
 
 module.exports = {
+  getCandidateById,
   getCandidateResumeData,
   getCandidateProjectsByIds,
   normalizeCandidateId,
