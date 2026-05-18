@@ -8,17 +8,17 @@ const PDF_DIR = path.join(os.tmpdir(), 'stellarpath-interview-reports');
 const FONT_REGULAR = 'Helvetica';
 const FONT_BOLD = 'Helvetica-Bold';
 
-// Dark purple palette (StellarPath interview report)
-const COLOR_BG_DEEP = '#fefcff';
-const COLOR_BG_MID = '#1e1135';
-const COLOR_HIGHLIGHT = '#f0d5ff';
-const COLOR_ACCENT = '#9b59b6';
-const COLOR_ACCENT_BRIGHT = '#8e44ad';
-const COLOR_PURPLE_MID = '#6c3483';
-const COLOR_PURPLE_DARK = '#5b2c6f';
-const COLOR_PURPLE_DEEPER = '#4a235a';
-const COLOR_TEXT = '#d9bdf2';
-const COLOR_MUTED = '#957eab';
+// Light palette based on user image
+const COLOR_BG_DEEP = '#F5F5F4';       // White Smoke (Page background)
+const COLOR_BG_MID = '#E5DBE6';        // Lavender Blush (Card backgrounds)
+const COLOR_HIGHLIGHT = '#55418B';     // Dusty Grape (Titles, important text)
+const COLOR_ACCENT = '#7D80DA';        // Soft Periwinkle (Accents, bullets)
+const COLOR_ACCENT_BRIGHT = '#7D80DA'; // Soft Periwinkle
+const COLOR_PURPLE_MID = '#B8A0A0';    // Rosy Taupe (Table headers)
+const COLOR_PURPLE_DARK = '#E5DBE6';   // Lavender Blush (Score card background)
+const COLOR_PURPLE_DEEPER = '#E5DBE6'; // Lavender Blush (List backgrounds)
+const COLOR_TEXT = '#55418B';          // Dusty Grape (Primary text)
+const COLOR_MUTED = '#B8A0A0';         // Rosy Taupe (Secondary text, descriptions)
 
 function contentBounds(doc) {
   const startX = doc.page.margins.left;
@@ -177,7 +177,7 @@ function drawScoreCard(doc, scorePercentage) {
     .font(FONT_BOLD)
     .fontSize(18)
     .fillColor(COLOR_HIGHLIGHT)
-    .text(`${scorePercentage}%`, scoreX + 10, scoreCenterY - 10, { width: 56, align: 'center' });
+    .text(`${scorePercentage}%`, scoreX, scoreCenterY - 8, { width: 56, align: 'center' });
 
   doc
     .font(FONT_BOLD)
