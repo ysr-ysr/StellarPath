@@ -83,20 +83,19 @@ Task:
 Generate a polished professional summary for the top of an ATS resume.
 
 Strict rules:
-- Output exactly 3 concise lines.
-- Each line must be a complete professional sentence.
+- Output exactly 3 distinct sentences, each on its own new line.
+- Structure:
+  * Line 1: Professional title and high-level summary of experience.
+  * Line 2: Core technical expertise, mentioning ONLY the top 3-4 most relevant technologies for this job. DO NOT list every skill.
+  * Line 3: A brief highlight of a relevant project or measurable achievement.
+- DO NOT use semicolons (;). Keep sentences short and easy for recruiters to read.
 - Use third-person resume style without pronouns.
-- Do not use "I", "my", "we", "our", "the candidate", or "a passionate".
-- Do not start with "Here is".
-- No storytelling.
-- No company voice.
-- No greetings.
-- No explanations.
+- Do not use "I", "my", "we", "our", "the candidate".
+- DO NOT output any preamble, intro, or internal thinking. Output ONLY the final 3 lines.
+- CRITICAL: You MUST wrap your final 3 lines of output inside <FINAL_SUMMARY> and </FINAL_SUMMARY> tags. Anything outside these tags will be deleted.
+- No storytelling or regurgitating these instructions.
 - Do not invent experience.
 - Use only the candidate data below.
-- Keep the language natural, direct, and recruiter-friendly.
-- Mention the role, strongest technical stack, AI/project focus, and job-relevant keywords.
-- Avoid awkward lists such as "using CSS & HTML5"; write clean phrases like "with React, Node.js, PostgreSQL, and AI APIs".
 
 Candidate name:
 ${candidate.name}
@@ -116,7 +115,13 @@ ${buildProjectsContext(projects)}
 }
 
 function cleanSummary(summary) {
-  return String(summary || '')
+  let text = String(summary || '');
+  const match = text.match(/<FINAL_SUMMARY>([\s\S]*?)<\/FINAL_SUMMARY>/i);
+  if (match) {
+    text = match[1];
+  }
+
+  return text
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
