@@ -121,8 +121,9 @@ function cleanSummary(summary) {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => line.replace(/^[-*•]\s*/, ''))
-    .replace(/^(professional summary|résumé|resume summary)\s*:\s*/i, '')
+    .map((line) => line.replace(/^(professional summary|résumé|resume summary)\s*:\s*/i, ''))
     .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
     .slice(0, 3)
     .join('\n');
 }
