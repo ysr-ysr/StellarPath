@@ -200,4 +200,6 @@ const generateCv = async (req, res, next) => {
 
 module.exports = {
   generateCv,
+  buildAtsSummaryPrompt,
+  cleanSummary,
 };
