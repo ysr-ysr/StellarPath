@@ -348,6 +348,20 @@ async function generateInterviewReportPdf({
     throw new Error('Candidate data is required to generate an interview report PDF.');
   }
 
+  const safeScore = Number(score && score.percentage);
+  const normalizedScore = Number.isFinite(safeScore) ? safeScore : 0;
+  const normalizedStrengths = strengths && strengths.length > 0 ? strengths : ['No strengths recorded.'];
+  const normalizedWeaknesses = weaknesses && weaknesses.length > 0 ? weaknesses : ['No weaknesses recorded.'];
+  const normalizedRecommendations =
+    recommendations && recommendations.length > 0
+      ? recommendations
+      : ['No recommendations recorded.'];
+
+  console.log('[Interview Debug] PDF score:', normalizedScore);
+  console.log('[Interview Debug] PDF strengths:', normalizedStrengths);
+  console.log('[Interview Debug] PDF weaknesses:', normalizedWeaknesses);
+  console.log('[Interview Debug] PDF recommendations:', normalizedRecommendations);
+
   await ensurePdfDirectory();
 
   const safeName = candidate.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
@@ -410,7 +424,7 @@ async function generateInterviewReportPdf({
     );
 
   doc.moveDown(0.8);
-  drawScoreCard(doc, score.percentage ?? 0);
+  drawScoreCard(doc, normalizedScore);
 
   addSectionTitle(doc, 'Questions & Answers');
   drawTableHeader(doc);
@@ -428,27 +442,13 @@ async function generateInterviewReportPdf({
   }
 
   addSectionTitle(doc, 'Strengths');
-  addBulletList(
-    doc,
-    strengths && strengths.length > 0 ? strengths : ['No strengths recorded.'],
-    COLOR_PURPLE_DEEPER
-  );
+  addBulletList(doc, normalizedStrengths, COLOR_PURPLE_DEEPER);
 
   addSectionTitle(doc, 'Weaknesses');
-  addBulletList(
-    doc,
-    weaknesses && weaknesses.length > 0 ? weaknesses : ['No weaknesses recorded.'],
-    COLOR_PURPLE_DARK
-  );
+  addBulletList(doc, normalizedWeaknesses, COLOR_PURPLE_DARK);
 
   addSectionTitle(doc, 'Recommendations');
-  addBulletList(
-    doc,
-    recommendations && recommendations.length > 0
-      ? recommendations
-      : ['No recommendations recorded.'],
-    COLOR_PURPLE_MID
-  );
+  addBulletList(doc, normalizedRecommendations, COLOR_PURPLE_MID);
 
   const footerY = doc.page.height - doc.page.margins.bottom + 8;
   doc

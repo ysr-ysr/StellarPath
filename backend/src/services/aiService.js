@@ -40,8 +40,11 @@ function extractOllamaText(data) {
     return '';
   }
 
-  // If the model hid JSON inside thinking, recover it.
-  const jsonMatch = thinkingText.match(/\{[\s\S]*"acceptable"[\s\S]*\}/i);
+  // If the model hid JSON inside thinking, recover it for answer validation,
+  // question generation, and final report generation.
+  const objectJsonMatch = thinkingText.match(/\{[\s\S]*\}/);
+  const arrayJsonMatch = thinkingText.match(/\[[\s\S]*\]/);
+  const jsonMatch = objectJsonMatch || arrayJsonMatch;
 
   if (jsonMatch) {
     return jsonMatch[0];

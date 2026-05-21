@@ -10,11 +10,27 @@ const {
 const MIN_QUESTIONS = 1;
 const MAX_QUESTIONS = 10;
 const DEFAULT_DIFFICULTY = 'beginner';
+const FALLBACK_STRENGTHS = [
+  'Demonstrates basic technical knowledge',
+  'Participated actively in the interview',
+];
+const FALLBACK_WEAKNESSES = [
+  'Needs more detailed technical explanations',
+  'Should improve depth of answers',
+];
+const FALLBACK_RECOMMENDATIONS = [
+  'Practice technical interview questions',
+  'Build additional practical projects',
+];
 
 function createServiceError(message, statusCode) {
   const error = new Error(message);
   error.statusCode = statusCode;
   return error;
+}
+
+function logInterviewDebug(label, value) {
+  console.log(`[Interview Debug] ${label}:`, value);
 }
 
 function getFieldFromDocument(document, fieldName) {
@@ -171,24 +187,54 @@ ${projectsContext || 'No projects available.'}
 `.trim();
 }
 
+// function buildAnswerValidationPrompt(question, answer) {
+//   return `
+// You are an interview answer evaluator.
+
+// Task:
+// Evaluate if the candidate answer is acceptable for the interview question.
+
+// Rules:
+// - Return ONLY valid JSON.
+// - No markdown.
+// - No extra keys.
+// - "acceptable" must be true or false.
+// - "feedback" must be one short sentence.
+
+// JSON format:
+// {
+//   "acceptable": true,
+//   "feedback": "Good explanation of PostgreSQL usage."
+// }
+
+// Question:
+// ${question}
+
+// Candidate answer:
+// ${answer}
+// `.trim();
+// }
 function buildAnswerValidationPrompt(question, answer) {
   return `
-You are an interview answer evaluator.
+You are a friendly technical interviewer evaluating a BEGINNER candidate.
 
 Task:
-Evaluate if the candidate answer is acceptable for the interview question.
+Determine if the answer demonstrates basic understanding of the topic.
 
 Rules:
 - Return ONLY valid JSON.
 - No markdown.
-- No extra keys.
-- "acceptable" must be true or false.
-- "feedback" must be one short sentence.
+- No extra text.
+- Accept short answers if they are technically correct.
+- Do NOT require expert-level explanations.
+- If the answer shows basic understanding, acceptable must be true.
+- Only return false when the answer is completely wrong, irrelevant, or empty.
+- Feedback must be one short constructive sentence.
 
 JSON format:
 {
   "acceptable": true,
-  "feedback": "Good explanation of PostgreSQL usage."
+  "feedback": "Shows basic understanding of the concept."
 }
 
 Question:
@@ -203,41 +249,59 @@ function buildReportInsightsPrompt({ jobDescription, qaPairs, score }) {
   const conversation = qaPairs
     .map((pair, index) => {
       const status = pair.is_acceptable ? 'acceptable' : 'needs improvement';
+
       return [
         `Question ${index + 1}: ${pair.question}`,
         `Answer: ${pair.answer}`,
         `Result: ${status}`,
-        `Feedback: ${pair.feedback || 'No feedback'}`,
+        `Feedback: ${pair.feedback || 'No feedback'}`
       ].join('\n');
     })
     .join('\n\n');
 
   return `
-You are an interview coach writing a final report.
+You are a technical interview coach.
 
-Task:
-Based on the interview results, return strengths, weaknesses, and recommendations.
+Analyze the interview results.
 
-Rules:
-- Return ONLY valid JSON.
-- No markdown.
-- Keep each list item short.
-- Maximum 3 items per list.
-- Do NOT calculate or mention a numeric score.
+IMPORTANT:
+Return ONLY valid JSON.
 
-JSON format:
+Do NOT return markdown.
+Do NOT return explanations.
+Do NOT return text before or after JSON.
+
+Always provide:
+- at least 2 strengths
+- at least 2 weaknesses
+- at least 2 recommendations
+
+Never return empty arrays.
+
+Format:
+
 {
-  "strengths": ["strength 1", "strength 2"],
-  "weaknesses": ["weakness 1", "weakness 2"],
-  "recommendations": ["recommendation 1", "recommendation 2"]
+  "strengths": [
+    "strength 1",
+    "strength 2"
+  ],
+  "weaknesses": [
+    "weakness 1",
+    "weakness 2"
+  ],
+  "recommendations": [
+    "recommendation 1",
+    "recommendation 2"
+  ]
 }
 
 Job description:
 ${jobDescription}
 
-Final score already calculated by the system: ${score}%
+Score:
+${score}
 
-Interview transcript:
+Interview:
 ${conversation}
 `.trim();
 }
@@ -251,6 +315,47 @@ function normalizeStringList(value) {
     .map((item) => String(item || '').trim())
     .filter(Boolean)
     .slice(0, 5);
+}
+
+function normalizeBoolean(value) {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'number') {
+    return value === 1;
+  }
+
+  if (typeof value === 'string') {
+    const normalizedValue = value.trim().toLowerCase();
+    return ['true', 't', '1', 'yes'].includes(normalizedValue);
+  }
+
+  return false;
+}
+
+function countAcceptableAnswers(answers) {
+  return answers.filter((answer) => normalizeBoolean(answer.is_acceptable)).length;
+}
+
+function getNonEmptyList(list, fallbackItems) {
+  return list.length > 0 ? list : [...fallbackItems];
+}
+
+function buildFallbackReportLists(answeredCount) {
+  if (answeredCount > 0) {
+    return {
+      strengths: [...FALLBACK_STRENGTHS],
+      weaknesses: [...FALLBACK_WEAKNESSES],
+      recommendations: [...FALLBACK_RECOMMENDATIONS],
+    };
+  }
+
+  return {
+    strengths: ['No answers submitted yet.'],
+    weaknesses: ['Complete the interview to receive detailed feedback.'],
+    recommendations: ['Answer all interview questions before requesting a report.'],
+  };
 }
 
 function formatListForStorage(items) {
@@ -390,7 +495,7 @@ function buildQaPairs(questions, answers) {
       question_id: question.id,
       question: question.message,
       answer: answer ? answer.message : '',
-      is_acceptable: answer ? Boolean(answer.is_acceptable) : false,
+      is_acceptable: answer ? normalizeBoolean(answer.is_acceptable) : false,
       feedback: answer ? answer.feedback : null,
       answered: Boolean(answer),
     };
@@ -449,6 +554,7 @@ async function startInterview({
   });
 
   const parsedQuestions = parseJsonFromResponse(aiRawResponse);
+  
   const questions = normalizeQuestionList(parsedQuestions, normalizedQuestionCount);
 
   const session = await createInterviewSession({
@@ -565,34 +671,50 @@ async function generateFinalReport(sessionId) {
   const qaPairs = buildQaPairs(questions, answers);
 
   const answeredCount = answers.length;
-  const acceptableCount = answers.filter((answer) => answer.is_acceptable).length;
+  const acceptableCount = countAcceptableAnswers(answers);
   const score = calculateScore(session.total_questions, acceptableCount);
+
+  logInterviewDebug('acceptableCount', acceptableCount);
+  logInterviewDebug('totalQuestions', session.total_questions);
+  logInterviewDebug('score', score);
 
   let strengths = [];
   let weaknesses = [];
   let recommendations = [];
 
   if (answeredCount > 0) {
-    const prompt = buildReportInsightsPrompt({
-      jobDescription: session.job_description,
-      qaPairs,
-      score,
-    });
+    try {
+      const prompt = buildReportInsightsPrompt({
+        jobDescription: session.job_description,
+        qaPairs,
+        score,
+      });
 
-    const aiRawResponse = await generateResponse(prompt, {
-      num_predict: 400,
-      temperature: 0.3,
-    });
+      const aiRawResponse = await generateResponse(prompt, {
+        num_predict: 400,
+        temperature: 0.3,
+      });
 
-    const parsedReport = parseJsonFromResponse(aiRawResponse);
-    strengths = normalizeStringList(parsedReport.strengths);
-    weaknesses = normalizeStringList(parsedReport.weaknesses);
-    recommendations = normalizeStringList(parsedReport.recommendations);
+      const parsedReport = parseJsonFromResponse(aiRawResponse);
+      logInterviewDebug('parsedReport', parsedReport);
+
+      strengths = normalizeStringList(parsedReport.strengths);
+      weaknesses = normalizeStringList(parsedReport.weaknesses);
+      recommendations = normalizeStringList(parsedReport.recommendations);
+    } catch (error) {
+      console.error('[Interview Debug] Failed to build AI interview report:', error.message);
+    }
+
+    strengths = getNonEmptyList(strengths, FALLBACK_STRENGTHS);
+    weaknesses = getNonEmptyList(weaknesses, FALLBACK_WEAKNESSES);
+    recommendations = getNonEmptyList(recommendations, FALLBACK_RECOMMENDATIONS);
   } else {
-    strengths = ['No answers submitted yet.'];
-    weaknesses = ['Complete the interview to receive detailed feedback.'];
-    recommendations = ['Answer all interview questions before requesting a report.'];
+    ({ strengths, weaknesses, recommendations } = buildFallbackReportLists(answeredCount));
   }
+
+  logInterviewDebug('strengths', strengths);
+  logInterviewDebug('weaknesses', weaknesses);
+  logInterviewDebug('recommendations', recommendations);
 
   const strengthsText = formatListForStorage(strengths);
   const weaknessesText = formatListForStorage(weaknesses);
@@ -664,7 +786,8 @@ async function getInterviewReportData(sessionId) {
   const answers = await getOrderedAnswers(normalizedSessionId);
   const qaPairs = buildQaPairs(questions, answers);
   const answeredCount = answers.length;
-  const acceptableCount = answers.filter((answer) => answer.is_acceptable).length;
+  const acceptableCount = countAcceptableAnswers(answers);
+  const calculatedScore = calculateScore(session.total_questions, acceptableCount);
 
   const candidate = await getCandidateById(session.candidate_id);
 
@@ -672,8 +795,22 @@ async function getInterviewReportData(sessionId) {
     throw createServiceError('Candidate not found.', 404);
   }
 
-  // If report not saved yet but answers exist, generate it once.
-  if (session.score === null && answeredCount > 0) {
+  const storedStrengths = parseStoredBulletList(session.strengths);
+  const storedWeaknesses = parseStoredBulletList(session.weaknesses);
+  const storedRecommendations = parseStoredBulletList(session.recommendations);
+
+  const reportNeedsRefresh =
+    answeredCount > 0 &&
+    (
+      session.score === null ||
+      Number(session.score) !== calculatedScore ||
+      storedStrengths.length === 0 ||
+      storedWeaknesses.length === 0 ||
+      storedRecommendations.length === 0
+    );
+
+  // Refresh stale or incomplete cached reports before JSON/PDF output.
+  if (reportNeedsRefresh) {
     const generated = await generateFinalReport(normalizedSessionId);
     return { candidate, ...generated };
   }
@@ -681,7 +818,22 @@ async function getInterviewReportData(sessionId) {
   const scorePercentage =
     session.score !== null
       ? session.score
-      : calculateScore(session.total_questions, acceptableCount);
+      : calculatedScore;
+
+  const fallbackReportLists = buildFallbackReportLists(answeredCount);
+  const strengths = getNonEmptyList(storedStrengths, fallbackReportLists.strengths);
+  const weaknesses = getNonEmptyList(storedWeaknesses, fallbackReportLists.weaknesses);
+  const recommendations = getNonEmptyList(
+    storedRecommendations,
+    fallbackReportLists.recommendations
+  );
+
+  logInterviewDebug('acceptableCount', acceptableCount);
+  logInterviewDebug('totalQuestions', session.total_questions);
+  logInterviewDebug('score', scorePercentage);
+  logInterviewDebug('strengths', strengths);
+  logInterviewDebug('weaknesses', weaknesses);
+  logInterviewDebug('recommendations', recommendations);
 
   return {
     candidate,
@@ -699,9 +851,9 @@ async function getInterviewReportData(sessionId) {
       total_questions: session.total_questions,
       answered_questions: answeredCount,
     },
-    strengths: parseStoredBulletList(session.strengths),
-    weaknesses: parseStoredBulletList(session.weaknesses),
-    recommendations: parseStoredBulletList(session.recommendations),
+    strengths,
+    weaknesses,
+    recommendations,
     qa_pairs: qaPairs,
   };
 }
