@@ -8,7 +8,9 @@
     "setup:interview": "npm --prefix backend run setup:interview"
   },
   "dependencies": {
+    "bcrypt": "^6.0.0",
     "chromadb": "^3.4.3",
+    "jsonwebtoken": "^9.0.3",
     "pdfkit": "^0.18.0"
   }
 }
