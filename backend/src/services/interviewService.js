@@ -6,6 +6,7 @@ const {
   getCandidateProjectsByIds,
   normalizeCandidateId,
 } = require('./candidateDataService');
+const { formatInlineList } = require('../utils/arrayFields');
 
 const MIN_QUESTIONS = 1;
 const MAX_QUESTIONS = 10;
@@ -78,9 +79,7 @@ function buildProjectsContext(projects) {
   return projects
     .slice(0, 5)
     .map((project, index) => {
-      const techStack = Array.isArray(project.tech_stack)
-        ? project.tech_stack.join(', ')
-        : project.tech_stack || 'Not listed';
+      const techStack = formatInlineList(project.tech_stack) || 'Not listed';
 
       return [
         `Project ${index + 1}: ${project.name}`,
@@ -140,7 +139,19 @@ function normalizeQuestionList(parsedResponse, expectedCount) {
     throw new Error('AI returned no interview questions.');
   }
 
-  return questions.slice(0, expectedCount);
+  return questions;
+}
+
+function buildQuestionJsonExample(questionCount) {
+  const exampleQuestions = Array.from({ length: questionCount }, (_, index) => (
+    `"Question ${index + 1}?"`
+  ));
+
+  return `{
+  "questions": [
+    ${exampleQuestions.join(',\n    ')}
+  ]
+}`;
 }
 
 function buildQuestionGenerationPrompt({
@@ -163,18 +174,14 @@ Rules:
 - No markdown.
 - No explanations.
 - No greetings.
+- The "questions" array must contain exactly ${questionCount} strings.
 - Questions must be technical and beginner-friendly.
 - Questions must relate to the candidate projects when possible.
 - Each question must be one sentence.
 - Maximum 20 words per question.
 
 JSON format:
-{
-  "questions": [
-    "Question 1?",
-    "Question 2?"
-  ]
-}
+${buildQuestionJsonExample(questionCount)}
 
 Candidate name:
 ${candidateName}
@@ -185,6 +192,48 @@ ${jobDescription}
 Candidate projects:
 ${projectsContext || 'No projects available.'}
 `.trim();
+}
+
+async function generateExactQuestionList({
+  jobDescription,
+  difficulty,
+  questionCount,
+  projects,
+  candidateName,
+}) {
+  const maxAttempts = 2;
+  let lastGeneratedCount = 0;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const prompt = buildQuestionGenerationPrompt({
+      jobDescription,
+      difficulty,
+      questionCount,
+      projects,
+      candidateName,
+    });
+
+    const aiRawResponse = await generateResponse(prompt, {
+      num_predict: Math.max(700, questionCount * 120),
+      temperature: attempt === 1 ? 0.3 : 0.2,
+    });
+
+    const parsedQuestions = parseJsonFromResponse(aiRawResponse);
+    const questions = normalizeQuestionList(parsedQuestions, questionCount);
+    lastGeneratedCount = questions.length;
+
+    logInterviewDebug('requestedQuestionCount', questionCount);
+    logInterviewDebug('generatedQuestionCount', lastGeneratedCount);
+
+    if (questions.length >= questionCount) {
+      return questions.slice(0, questionCount);
+    }
+  }
+
+  throw createServiceError(
+    `AI generated ${lastGeneratedCount} questions, but ${questionCount} were requested. Please try again.`,
+    502
+  );
 }
 
 // function buildAnswerValidationPrompt(question, answer) {
@@ -540,7 +589,7 @@ async function startInterview({
     normalizedJobDescription
   );
 
-  const prompt = buildQuestionGenerationPrompt({
+  const questions = await generateExactQuestionList({
     jobDescription: normalizedJobDescription,
     difficulty: normalizedDifficulty,
     questionCount: normalizedQuestionCount,
@@ -548,20 +597,11 @@ async function startInterview({
     candidateName: candidate.name,
   });
 
-  const aiRawResponse = await generateResponse(prompt, {
-    num_predict: 700,
-    temperature: 0.3,
-  });
-
-  const parsedQuestions = parseJsonFromResponse(aiRawResponse);
-  
-  const questions = normalizeQuestionList(parsedQuestions, normalizedQuestionCount);
-
   const session = await createInterviewSession({
     candidateId: normalizedCandidateId,
     jobDescription: normalizedJobDescription,
     difficulty: normalizedDifficulty,
-    totalQuestions: questions.length,
+    totalQuestions: normalizedQuestionCount,
   });
 
   const savedQuestions = await insertQuestionMessages(session.id, questions);

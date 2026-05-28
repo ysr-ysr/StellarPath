@@ -1,4 +1,5 @@
 const { pool } = require('../config/db');
+const { createHttpError } = require('../utils/httpError');
 
 function normalizeCandidateId(candidateId) {
   const normalizedCandidateId = Number(candidateId);
@@ -16,6 +17,19 @@ async function getCandidateById(candidateId) {
   const result = await pool.query(
     'SELECT * FROM candidates WHERE id = $1',
     [normalizedCandidateId]
+  );
+
+  return result.rows[0] || null;
+}
+
+async function getCandidateByUserId(userId) {
+  if (!userId) {
+    throw createHttpError('Authenticated user is required.', 401);
+  }
+
+  const result = await pool.query(
+    'SELECT * FROM candidates WHERE user_id = $1',
+    [userId]
   );
 
   return result.rows[0] || null;
@@ -41,6 +55,20 @@ async function getCandidateEducation(candidateId) {
   const result = await pool.query(
     `SELECT id, school, diploma
      FROM education
+     WHERE candidate_id = $1
+     ORDER BY id ASC`,
+    [normalizedCandidateId]
+  );
+
+  return result.rows;
+}
+
+async function getCandidateProjects(candidateId) {
+  const normalizedCandidateId = normalizeCandidateId(candidateId);
+
+  const result = await pool.query(
+    `SELECT id, name, description, tech_stack, key_achievements, candidate_id
+     FROM projects
      WHERE candidate_id = $1
      ORDER BY id ASC`,
     [normalizedCandidateId]
@@ -93,9 +121,38 @@ async function getCandidateResumeData(candidateId) {
   };
 }
 
+async function getAuthenticatedCandidateResumeData(userId) {
+  const candidate = await getCandidateByUserId(userId);
+
+  if (!candidate) {
+    return {
+      candidate: null,
+      skills: [],
+      education: [],
+      projects: [],
+    };
+  }
+
+  const [skills, education, projects] = await Promise.all([
+    getCandidateSkills(candidate.id),
+    getCandidateEducation(candidate.id),
+    getCandidateProjects(candidate.id),
+  ]);
+
+  return {
+    candidate,
+    skills,
+    education,
+    projects,
+  };
+}
+
 module.exports = {
   getCandidateById,
+  getCandidateByUserId,
   getCandidateResumeData,
+  getAuthenticatedCandidateResumeData,
+  getCandidateProjects,
   getCandidateProjectsByIds,
   normalizeCandidateId,
 };

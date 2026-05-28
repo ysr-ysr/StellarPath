@@ -1,18 +1,28 @@
+const { formatInlineList, normalizeArrayField } = require('./arrayFields');
+
 function buildSkillsContext(skills) {
   if (!skills || skills.length === 0) {
     return 'No skills listed.';
   }
 
-  return skills.map((skill) => skill.name).join(', ');
+  const names = skills
+    .flatMap((skill) => normalizeArrayField(skill.name))
+    .filter(Boolean);
+
+  return names.length > 0 ? names.join(', ') : 'No skills listed.';
 }
 
 function buildProjectsContext(projects) {
+  if (!projects || projects.length === 0) {
+    return 'No projects available.';
+  }
+
   return projects.slice(0, 3).map((project, index) => {
     return [
       `Project ${index + 1}: ${project.name}`,
-      `Tech Stack: ${project.tech_stack || 'Not listed'}`,
+      `Tech Stack: ${formatInlineList(project.tech_stack) || 'Not listed'}`,
       `Description: ${project.description || 'Not listed'}`,
-      `Key Achievements: ${project.key_achievements || 'Not listed'}`,
+      `Key Achievements: ${formatInlineList(project.key_achievements) || 'Not listed'}`,
     ].join('\n');
   }).join('\n\n');
 }
@@ -64,12 +74,17 @@ function cleanSummary(summary) {
   }
 
   return text
+    .replace(/<\/?FINAL_SUMMARY>/gi, '')
+    .replace(/<\/?TEMP>/gi, '')
+    .replace(/<\/?PLACEHOLDER>/gi, '')
+    .replace(/<\/?[^>]+>/g, '')
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
-    .map((line) => line.replace(/^[-*•]\s*/, ''))
-    .map((line) => line.replace(/^(professional summary|résumé|resume summary)\s*:\s*/i, ''))
+    .map((line) => line.replace(/^[-*\u2022]\s*/, ''))
+    .map((line) => line.replace(/^(professional summary|resume summary|resume)\s*:\s*/i, ''))
     .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter((line) => !/(<final_summary>|<temp>|<placeholder>)/i.test(line))
     .filter(Boolean)
     .slice(0, 3)
     .join('\n');

@@ -2,6 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const PDFDocument = require('pdfkit');
+const { normalizeArrayField, formatInlineList } = require('../utils/arrayFields');
 
 const PDF_DIR = path.join(os.tmpdir(), 'stellarpath-cv');
 const FONT_REGULAR = 'Helvetica';
@@ -12,28 +13,23 @@ const COLOR_ACCENT = '#1e40af';
 const COLOR_MUTED = '#64748b';
 const COLOR_RULE = '#94a3b8';
 const COLOR_RULE_LIGHT = '#e2e8f0';
+const FALLBACK_SUMMARY =
+  'Professional summary unavailable. Add more profile details, skills, and projects to improve this section.';
 
 function normalizeText(value) {
-  if (Array.isArray(value)) {
-    return value.filter(Boolean).join(', ');
-  }
-
-  return value ? String(value) : '';
+  return value
+    ? String(value)
+      .replace(/<\/?FINAL_SUMMARY>/gi, '')
+      .replace(/<\/?TEMP>/gi, '')
+      .replace(/<\/?PLACEHOLDER>/gi, '')
+      .replace(/<\/?[^>]+>/g, '')
+      .replace(/[{}[\]"]/g, '')
+      .trim()
+    : '';
 }
 
 function normalizeAchievements(value) {
-  if (Array.isArray(value)) {
-    return value.filter(Boolean);
-  }
-
-  if (!value) {
-    return [];
-  }
-
-  return String(value)
-    .split(/\r?\n|;/)
-    .map((achievement) => achievement.trim())
-    .filter(Boolean);
+  return normalizeArrayField(value);
 }
 
 function contentBounds(doc) {
@@ -84,7 +80,9 @@ function addHeaderDivider(doc) {
 }
 
 function addBullet(doc, text) {
-  if (!text) {
+  const normalizedText = normalizeText(text);
+
+  if (!normalizedText) {
     return;
   }
 
@@ -96,8 +94,8 @@ function addBullet(doc, text) {
     .font(FONT_REGULAR)
     .fontSize(9.3)
     .fillColor(COLOR_PRIMARY)
-    .text('•', startX, doc.y, { continued: false, width: 8 })
-    .text(text, bulletX, doc.y - doc.currentLineHeight(), {
+    .text('\u2022', startX, doc.y, { continued: false, width: 8 })
+    .text(normalizedText, bulletX, doc.y - doc.currentLineHeight(), {
       width: textWidth,
       lineGap: 2,
     });
@@ -124,7 +122,7 @@ function addSummary(doc, summary) {
     .font(FONT_REGULAR)
     .fontSize(9.5)
     .fillColor(COLOR_PRIMARY)
-    .text(normalizeText(summary), startX, doc.y, {
+    .text(normalizeText(summary) || FALLBACK_SUMMARY, startX, doc.y, {
       width,
       lineGap: 3,
       align: 'left',
@@ -132,13 +130,22 @@ function addSummary(doc, summary) {
 }
 
 function addSkills(doc, skills) {
-  if (!skills || skills.length === 0) {
-    return;
-  }
-
   addSectionTitle(doc, 'Skills');
 
   const { startX, width } = contentBounds(doc);
+
+  if (!skills || skills.length === 0) {
+    doc
+      .font(FONT_REGULAR)
+      .fontSize(9.5)
+      .fillColor(COLOR_MUTED)
+      .text('No skills added yet.', startX, doc.y, {
+        width,
+        lineGap: 3,
+      });
+    return;
+  }
+
   const skillsByCategory = skills.reduce((groups, skill) => {
     const category = skill.category || 'Other';
 
@@ -146,7 +153,7 @@ function addSkills(doc, skills) {
       groups[category] = [];
     }
 
-    groups[category].push(skill.name);
+    normalizeArrayField(skill.name).forEach((name) => groups[category].push(name));
     return groups;
   }, {});
 
@@ -161,20 +168,28 @@ function addSkills(doc, skills) {
       })
       .font(FONT_REGULAR)
       .fillColor(COLOR_PRIMARY)
-      .text(names.join(', '), {
+      .text([...new Set(names.map(normalizeText).filter(Boolean))].join(' \u2022 '), {
         lineGap: 3,
       });
   });
 }
 
 function addProjects(doc, projects) {
-  if (!projects || projects.length === 0) {
-    return;
-  }
-
   addSectionTitle(doc, 'Projects');
 
   const { startX, width } = contentBounds(doc);
+
+  if (!projects || projects.length === 0) {
+    doc
+      .font(FONT_REGULAR)
+      .fontSize(9.5)
+      .fillColor(COLOR_MUTED)
+      .text('No projects available.', startX, doc.y, {
+        width,
+        lineGap: 3,
+      });
+    return;
+  }
 
   projects.forEach((project, index) => {
     if (index > 0) {
@@ -187,7 +202,12 @@ function addProjects(doc, projects) {
       .fillColor(COLOR_PRIMARY)
       .text(normalizeText(project.name), startX, doc.y, { width });
 
-    if (project.tech_stack) {
+    const techStack = formatInlineList(
+      project.tech_stack || project.technologies || project.skills,
+      ' \u2022 '
+    );
+
+    if (techStack) {
       doc.moveDown(0.15);
       doc
         .font(FONT_BOLD)
@@ -199,7 +219,7 @@ function addProjects(doc, projects) {
         })
         .font(FONT_REGULAR)
         .fillColor(COLOR_PRIMARY)
-        .text(normalizeText(project.tech_stack), {
+        .text(techStack, {
           lineGap: 2,
         });
     }
@@ -216,11 +236,97 @@ function addProjects(doc, projects) {
         });
     }
 
-    normalizeAchievements(project.key_achievements).forEach((achievement) => {
+    const achievements = [
+      ...normalizeAchievements(project.achievements),
+      ...normalizeAchievements(project.key_achievements),
+    ];
+
+    if (achievements.length > 0) {
+      doc.moveDown(0.15);
+      doc
+        .font(FONT_BOLD)
+        .fontSize(9.1)
+        .fillColor(COLOR_MUTED)
+        .text('Achievements:', startX, doc.y, { width });
+    }
+
+    [...new Set(achievements.map(normalizeText).filter(Boolean))].forEach((achievement) => {
       doc.moveDown(0.08);
       addBullet(doc, achievement);
     });
   });
+}
+
+function normalizeProjectForPdf(project) {
+  return {
+    ...project,
+    name: normalizeText(project.name),
+    description: normalizeText(project.description),
+    tech_stack: normalizeArrayField(project.tech_stack || project.technologies || project.skills),
+    key_achievements: [
+      ...normalizeArrayField(project.achievements),
+      ...normalizeArrayField(project.key_achievements),
+    ],
+  };
+}
+
+function normalizeSkillForPdf(skill) {
+  return {
+    ...skill,
+    category: normalizeText(skill.category) || 'Other',
+    name: normalizeArrayField(skill.name),
+  };
+}
+
+function validateNoDatabaseArtifacts(label, value) {
+  const text = String(value || '');
+
+  if (/[{}[\]]/.test(text) || /<\/?FINAL_SUMMARY>/i.test(text)) {
+    throw new Error(`Malformed resume data in ${label}.`);
+  }
+}
+
+function sanitizeResumeData({ candidate, summary, skills, projects, education }) {
+  const cleanCandidate = {
+    ...candidate,
+    name: normalizeText(candidate.name),
+    title: normalizeText(candidate.title),
+    phone: normalizeText(candidate.phone),
+    email: normalizeText(candidate.email),
+    linkedin: normalizeText(candidate.linkedin),
+    github: normalizeText(candidate.github),
+    location: normalizeText(candidate.location),
+  };
+  const cleanSummary = normalizeText(summary);
+  const cleanSkills = (skills || []).map(normalizeSkillForPdf);
+  const cleanProjects = (projects || []).map(normalizeProjectForPdf);
+  const cleanEducation = (education || []).map((item) => ({
+    ...item,
+    school: normalizeText(item.school),
+    diploma: normalizeText(item.diploma),
+  }));
+
+  validateNoDatabaseArtifacts('summary', cleanSummary);
+  validateNoDatabaseArtifacts('candidate name', cleanCandidate.name);
+  validateNoDatabaseArtifacts('candidate title', cleanCandidate.title);
+  cleanSkills.forEach((skill, index) => {
+    validateNoDatabaseArtifacts(`skill ${index + 1} category`, skill.category);
+    skill.name.forEach((item) => validateNoDatabaseArtifacts(`skill ${index + 1}`, item));
+  });
+  cleanProjects.forEach((project, index) => {
+    validateNoDatabaseArtifacts(`project ${index + 1} name`, project.name);
+    validateNoDatabaseArtifacts(`project ${index + 1} description`, project.description);
+    project.tech_stack.forEach((item) => validateNoDatabaseArtifacts(`project ${index + 1} tech stack`, item));
+    project.key_achievements.forEach((item) => validateNoDatabaseArtifacts(`project ${index + 1} achievement`, item));
+  });
+
+  return {
+    candidate: cleanCandidate,
+    summary: cleanSummary,
+    skills: cleanSkills,
+    projects: cleanProjects,
+    education: cleanEducation,
+  };
 }
 
 function addEducation(doc, education) {
@@ -267,9 +373,17 @@ async function generateResumePdf({ candidate, summary, skills, projects, educati
     throw new Error('Candidate data is required to generate a resume PDF.');
   }
 
+  const sanitized = sanitizeResumeData({
+    candidate,
+    summary,
+    skills,
+    projects,
+    education,
+  });
+
   await ensurePdfDirectory();
 
-  const safeName = candidate.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+  const safeName = sanitized.candidate.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
   const fileName = `${safeName || 'candidate'}-${Date.now()}-resume.pdf`;
   const filePath = path.join(PDF_DIR, fileName);
 
@@ -277,8 +391,8 @@ async function generateResumePdf({ candidate, summary, skills, projects, educati
     size: 'LETTER',
     margin: 52,
     info: {
-      Title: `${candidate.name} Resume`,
-      Author: candidate.name,
+      Title: `${sanitized.candidate.name} Resume`,
+      Author: sanitized.candidate.name,
       Subject: 'ATS-friendly resume generated by StellarPath',
     },
   });
@@ -292,25 +406,25 @@ async function generateResumePdf({ candidate, summary, skills, projects, educati
     .font(FONT_BOLD)
     .fontSize(20)
     .fillColor(COLOR_PRIMARY)
-    .text(candidate.name.toUpperCase(), startX, doc.y, {
+    .text(sanitized.candidate.name.toUpperCase(), startX, doc.y, {
       width,
       align: 'center',
       characterSpacing: 0.8,
     });
 
-  if (candidate.title) {
+  if (sanitized.candidate.title) {
     doc.moveDown(0.35);
     doc
       .font(FONT_REGULAR)
       .fontSize(10.5)
       .fillColor(COLOR_ACCENT)
-      .text(candidate.title, startX, doc.y, {
+      .text(sanitized.candidate.title, startX, doc.y, {
         width,
         align: 'center',
       });
   }
 
-  const contactLine = buildContactLine(candidate);
+  const contactLine = buildContactLine(sanitized.candidate);
   if (contactLine) {
     doc.moveDown(0.4);
     doc
@@ -325,10 +439,10 @@ async function generateResumePdf({ candidate, summary, skills, projects, educati
   }
 
   addHeaderDivider(doc);
-  addSummary(doc, summary);
-  addSkills(doc, skills);
-  addProjects(doc, projects);
-  addEducation(doc, education);
+  addSummary(doc, sanitized.summary);
+  addSkills(doc, sanitized.skills);
+  addProjects(doc, sanitized.projects);
+  addEducation(doc, sanitized.education);
 
   doc.end();
 
